@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"sync"
 	"time"
 )
 
@@ -50,17 +49,12 @@ func main() {
 	}()
 
 	done := make(chan int)
-	var mu sync.Mutex // 確保肉品的安全分配
 
 	for _, emp := range EmployeeList {
 		go func(e Employee) {
 
 			for {
-				// 取得肉品前先上鎖，避免同時有員工取得肉品
-				mu.Lock()
 				meat, ok := <-meatsCh
-				// 取得肉品後解鎖
-				mu.Unlock()
 
 				if !ok {
 					log.Printf("所有肉品已處理完畢，員工 %s 結束工作\n", e.Name)
@@ -68,6 +62,7 @@ func main() {
 				}
 
 				if err := meetProcessor(meat, e); err != nil {
+					log.Print(err)
 					meatsCh <- meat
 				} else {
 					done <- 1
