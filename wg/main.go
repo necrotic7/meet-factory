@@ -35,6 +35,8 @@ func main() {
 	allMeatCounts := Beef.Quantity + Pork.Quantity + Chicken.Quantity
 	// 建立一個channel放所有的肉品
 	meatsCh := make(chan Meat, allMeatCounts)
+	// 建立 channel 處理重試的肉品
+	retryCh := make(chan Meat, 10)
 	// 將肉品放入channel
 	go func() {
 		for i := 0; i < Beef.Quantity; i++ {
@@ -51,7 +53,6 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex // 確保肉品的安全分配
 
 	for _, emp := range EmployeeList {
 		// 每一個員工起一個go routine
@@ -61,30 +62,38 @@ func main() {
 			defer wg.Done()
 
 			for {
-				// 取得肉品前先上鎖，避免同時有員工取得肉品
-				mu.Lock()
-				meat, ok := <-meatsCh
-				// 取得肉品後解鎖
-				mu.Unlock()
 
-				if !ok {
-					log.Printf("所有肉品已處理完畢，員工 %s 結束工作", e.Name)
-					return
+				select {
+				case meat, ok := <-meatsCh:
+					if !ok {
+						log.Printf("所有肉品已處理完畢，員工 %s 結束工作\n", e.Name)
+						return
+					}
+					meatProcessor(meat, e, retryCh)
+				case meat := <-retryCh:
+					meatProcessor(meat, e, retryCh)
 				}
 
-				meetProcessor(meat, e)
 			}
 		}(emp)
 	}
 
 	// 等待所有 go routine結束
 	wg.Wait()
+	// close channel
+	close(retryCh)
+
 	log.Printf("所有員工結束工作")
 }
 
-func meetProcessor(meat Meat, emp Employee) {
+func meatProcessor(meat Meat, emp Employee, retryCh chan Meat) {
 	log.Printf("%s 取得%s \n", emp.Name, meat.Name)
+	if time.Now().Second()%2 == 0 {
+		log.Printf("%s 處理%s失敗 \n", emp.Name, meat.Name)
+		retryCh <- meat
+	}
 	// 處理肉品
 	time.Sleep(time.Duration(meat.Time) * time.Second)
 	log.Printf("%s 處理完%s \n", emp.Name, meat.Name)
+	return
 }
